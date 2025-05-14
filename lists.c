@@ -96,7 +96,27 @@ file_t *find_by_fname(list_t *list, const char *fname) {
     return NULL; // File not found
 }
 
-// 5. Destroy the list
+//5. find by fid
+file_t *find_by_fid(list_t *list, int fid) {
+    if (!list) return NULL;
+    
+    pthread_mutex_lock(&list->lock);
+    
+    file_t *curr = list->head;
+    
+    while (curr != NULL) {
+        if (curr->fid == fid) {
+            pthread_mutex_unlock(&list->lock);
+            return curr;
+        }
+        curr = curr->next;
+    }
+    
+    pthread_mutex_unlock(&list->lock);
+    return NULL; // File not found
+}
+
+// 6. Destroy the list
 void destroy(list_t *list) {
     if (!list) return;
     

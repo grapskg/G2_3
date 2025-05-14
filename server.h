@@ -20,8 +20,9 @@
 #include <fcntl.h>
 
 #define SIZE 1024
-#define IP "127.0.0.1"
 
+#define IP "127.0.0.1"
+#define BASE_DIR "./files"
 
 typedef enum {
     OPEN,
@@ -58,6 +59,8 @@ list_t *list_init();
 int add(list_t *list, char *fname, int fd, int fid);
 int delete_by_fname(list_t *list, const char *fname);
 file_t *find_by_fname(list_t *list, const char *fname);
+file_t *find_by_fid(list_t *list, int fid);
+
 void destroy(list_t *list);
 /////////////////////
 
@@ -66,8 +69,7 @@ void server_destroy();
 void init_contact_info(int port_num);
 int init_udp_socket(struct sockaddr_in *server_addr);
 
-
-int serialize(void *buffer,msg_type *msg , char *fname, int *fid, int *pos, int *size, char *payload);
-int deserialize(void *buffer,msg_type *msg , char *fname, int *fid, int *pos, int *size, char *payload);
+int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size,int *seqno, int *rn ,char *payload);
+int deserialize(void *buffer, msg_type *msg , char **fname, int *fid, int *pos, int *size,int *seqno, int *rn ,char **payload);
 
 #endif

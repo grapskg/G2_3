@@ -49,9 +49,18 @@ int serialize_enum(void *buffer,msg_type *msg, int *offset){
 }
 
 //ASSUME  BUFFER HAS ENOUGH SPACE
-//need to declare
-int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size, char *payload){
+//TODO: CHECK IF STRINGS ARE VALID
+int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size,int *seqno, int *rn ,char *payload){
     int offset=0;
+
+    serialize_enum(buffer, msg, &offset);
+    serialize_string(buffer, fname, &offset);
+    serialize_int(buffer,fid, &offset);
+    serialize_int(buffer,pos, &offset);
+    serialize_int(buffer,size, &offset);
+    serialize_int(buffer,seqno, &offset);
+    serialize_int(buffer,rn, &offset);
+    serialize_string(buffer, payload, &offset);
 
 
     return offset;
@@ -87,8 +96,10 @@ char *deserialize_string(void *buffer, int *offset) {
 
     // Allocate memory for string + null terminator
     char *str = malloc(len + 1);
-    if (!str) return NULL; // Allocation failed
-
+    if (!str){
+        printf("i am here\n");
+        return NULL; // Allocation failed
+    }
     memcpy(str, (char *)buffer + *offset, len);
     str[len] = '\0';  // Null-terminate
     *offset += len;
@@ -97,10 +108,18 @@ char *deserialize_string(void *buffer, int *offset) {
 }
 
 
-//need to declare
-int deserialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size, char *payload){
+//TODO: CHECK IF STRINGS ARE VALID
+int deserialize(void *buffer, msg_type *msg , char **fname, int *fid, int *pos, int *size,int *seqno,int *rn ,char **payload){
     int offset = 0;
 
+    deserialize_enum(buffer, msg, &offset);
+    *fname = deserialize_string(buffer, &offset);
+    deserialize_int(buffer,fid, &offset);
+    deserialize_int(buffer,pos, &offset);
+    deserialize_int(buffer,size, &offset);
+    deserialize_int(buffer,seqno, &offset);
+    deserialize_int(buffer,rn, &offset);
+    *payload = deserialize_string(buffer, &offset);
 
     
     return offset;
