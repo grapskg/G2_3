@@ -19,8 +19,10 @@
 #include <ifaddrs.h>
 #include <fcntl.h>
 
-#define SIZE 1024
-
+#define SIZE 4096
+#define PAYLOAD_SIZE 512
+#define INTERVAL 30
+#define FRESH 60
 #define IP "127.0.0.1"
 #define BASE_DIR "./files"
 
@@ -60,7 +62,7 @@ int add(list_t *list, char *fname, int fd, int fid);
 int delete_by_fname(list_t *list, const char *fname);
 file_t *find_by_fname(list_t *list, const char *fname);
 file_t *find_by_fid(list_t *list, int fid);
-
+void print_list(const list_t *list);
 void destroy(list_t *list);
 /////////////////////
 
@@ -68,6 +70,7 @@ void server_init();
 void server_destroy();
 void init_contact_info(int port_num);
 int init_udp_socket(struct sockaddr_in *server_addr);
+int reopen(char *fname, int fid);
 
 int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size,int *seqno, int *rn ,char *payload);
 int deserialize(void *buffer, msg_type *msg , char **fname, int *fid, int *pos, int *size,int *seqno, int *rn ,char **payload);

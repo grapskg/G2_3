@@ -48,9 +48,36 @@ int serialize_enum(void *buffer,msg_type *msg, int *offset){
     return 1;
 }
 
+
+int serialize_payload(void *buffer, const char *str, int *offset, int size) {
+    // Handle NULL strings
+    if (str == NULL) {
+        // Option 1: Serialize as empty string
+        int net_len = htonl(0);
+        memcpy((char*)buffer + *offset, &net_len, sizeof(int));
+        *offset += sizeof(int);
+        return 1;
+        
+        // Option 2: Return error
+        // return -1;
+    }
+    
+    int len = size;                   // Fixed length of 512 bytes
+    int net_len = htonl(len);        // Convert length to network byte order
+    
+    // First, write the length of the string
+    memcpy((char*)buffer + *offset, &net_len, sizeof(int));
+    *offset += sizeof(int);
+
+    // Then, write the actual string bytes (copy up to 512 bytes)
+    memcpy((char*)buffer + *offset, str, len);
+    *offset += len;
+
+    return 1;
+}
 //ASSUME  BUFFER HAS ENOUGH SPACE
 //TODO: CHECK IF STRINGS ARE VALID
-int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size,int *seqno, int *rn ,char *payload){
+int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int *size,int *seqno, int *rn,char *payload){
     int offset=0;
 
     serialize_enum(buffer, msg, &offset);
@@ -60,7 +87,8 @@ int serialize(void *buffer, msg_type *msg , char *fname, int *fid, int *pos, int
     serialize_int(buffer,size, &offset);
     serialize_int(buffer,seqno, &offset);
     serialize_int(buffer,rn, &offset);
-    serialize_string(buffer, payload, &offset);
+    //serialize_int(buffer, tmod, &offset);
+    serialize_payload(buffer, payload, &offset, *size);
 
 
     return offset;

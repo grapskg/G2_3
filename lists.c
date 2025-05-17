@@ -139,3 +139,25 @@ void destroy(list_t *list) {
     pthread_mutex_destroy(&list->lock);
     free(list);  // Free the list structure itself
 }
+
+
+void print_list(const list_t *list) {
+    if (!list) {
+        printf("List is NULL\n");
+        return;
+    }
+
+    pthread_mutex_lock(&list->lock);
+
+    file_t *current = list->head;
+    while (current) {
+        printf("File name: %s, fd: %d, fid: %d\n",
+               current->fname ? current->fname : "(null)",
+               current->fd,
+               current->fid);
+
+        current = current->next;
+    }
+
+    pthread_mutex_unlock(&list->lock);
+}

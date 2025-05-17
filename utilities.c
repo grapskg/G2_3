@@ -1,6 +1,7 @@
 #include "server.h"
 
 pthread_t receiver;
+pthread_t fresh_checker;
 list_t *files;
 struct sockaddr_in server;
 socklen_t server_len;
@@ -17,7 +18,7 @@ void *receive_udp(void *arg){
     msg_type type;
     char * fname=NULL, *payload=NULL;
     char filepath[SIZE];
-    int fid, pos, size, ret,seqno;
+    int fid, pos, size, ret,seqno, old_size;
     file_t *temp=NULL;
     
     while(1){
@@ -47,6 +48,7 @@ void *receive_udp(void *arg){
                     printf("got open for %s\n", fname);
                     //try to find if file is already open
                     temp = find_by_fid(files,fid);
+                    temp->last_activity = time(NULL);
 
                     //CASE THAT FILE IS OPEN
                     if(temp != NULL){
@@ -77,6 +79,8 @@ void *receive_udp(void *arg){
                         if(fd != -1){
                             //add file to the list along with its fd , fid and fname
                             add(files, fname, fd, fid_cnt);
+                            temp = find_by_fid(files,fid);
+                            temp->last_activity = time(NULL);
                             //send answer
                             type = OPEN_REP;
                             serialize(buff,&type, fname,&fid_cnt, &pos, &size, &seqno,&rn ,payload);
@@ -110,23 +114,38 @@ void *receive_udp(void *arg){
                 if(fname != NULL){
                     printf("got read for %s\n", fname);
                     temp = find_by_fid(files, fid);
+                    temp->last_activity = time(NULL);
                     //file is open read
                     if(temp != NULL){
                         //malloc size of the requested read data
                         //if(size > 0){}
-                        char *rbuff;
-                        rbuff = (char *)malloc(size*sizeof(char));
+                        char *rbuff = malloc(size * sizeof(char));
+                        if (!rbuff) {
+                            perror("malloc");
+                            exit(EXIT_FAILURE);
+                        }
+
                         memset(rbuff, 0, size);
                         int count = 0, ret = 0;
+
                         //SEEK TO POS (ASSUME POS IS FROM THE START FO THE FILE)
-                        lseek(temp->fd, pos, SEEK_SET);
+                        off_t seek_ret = lseek(temp->fd, pos, SEEK_SET);
+                        if (seek_ret == (off_t)-1) {
+                            perror("lseek");
+                            free(rbuff);
+                            exit(EXIT_FAILURE);
+                        }
+                        
+                        old_size = size;
 
                         while (count < size) {
                             ret = read(temp->fd, rbuff + count, size - count);
                             if (ret == 0) {
                                 // EOF reached
+                                printf("reached eof\n");
                                 break;
                             } else if (ret == -1) {
+                                printf("read error\n");
                                 perror("read");
                                 break;
                             }
@@ -136,10 +155,12 @@ void *receive_udp(void *arg){
                         type = READ_DONE;
                         //CHECK IF COUNT EQUAL SIZE OR LESS
                         if(rbuff != NULL){
-                            printf("read: %s\n", rbuff);
+                            //printf("size wanted %d, pos given %d, count read: %d\n",size, pos, count);
                         }
+
                         serialize(buff, &type, fname, &temp->fid,&pos , &count, &seqno,&rn, rbuff);
                         ret = sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
+                        
                         if(ret == -1){
                             perror("sendto");
                         }
@@ -148,26 +169,13 @@ void *receive_udp(void *arg){
                         
                     }//reopen file and read
                     else{ 
-                        //REOPEN AND SAVE WITH PREVIOUS FID
-                        snprintf(filepath, sizeof(filepath), "%s/%s", bdir, fname);
-                        //printf("filepath is: %s\n", filepath);
-                        int fd = open(filepath, O_RDWR | O_CREAT, 0644);
-                        
-                        
-                        if(fd != -1){
-                            //add file to the list along with its fd, fname and FID FROM REQ
-                            add(files, fname, fd, fid);
-                            //send answer
-                            type = OPEN_REP;
-                            serialize(buff,&type, fname,&fid_cnt, &pos, &size, &seqno,&rn, payload);
-                            sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
-                            //update fid
-                            fid_cnt++;
-                                
-                            
-                        }
+
+                        reopen(fname, fid);
+
                         //GET THE NEWLY OPENED FILE
                         temp = find_by_fid(files, fid);
+                        temp->last_activity = time(NULL);
+                        
 
                         //DO READ OPERATIONS
                         char *rbuff;
@@ -177,22 +185,30 @@ void *receive_udp(void *arg){
                         //SEEK TO POS (ASSUME POS IS FROM THE START FO THE FILE)
                         lseek(temp->fd, pos, SEEK_SET);
 
+                        old_size = size;
+
                         while (count < size) {
                             ret = read(temp->fd, rbuff + count, size - count);
                             if (ret == 0) {
                                 // EOF reached
+                                printf("reached eof\n");
                                 break;
                             } else if (ret == -1) {
+                                printf("error from read\n");
                                 perror("read");
                                 break;
                             }
                             count += ret;
+                            printf("ret from read is %d\n", ret);
+
                         }
                         type = READ_DONE;
                         //CHECK IF COUNT EQUAL SIZE OR LESS
                         if(rbuff != NULL){
-                            printf("read: %s\n", rbuff);
+                            //printf("size wanted %d, pos given %d, count read: %d\n",size, pos, count);
+
                         }
+
                         serialize(buff, &type, fname, &temp->fid,&pos , &count, &seqno,&rn ,rbuff);
                         sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
                         if(ret == -1){
@@ -215,6 +231,8 @@ void *receive_udp(void *arg){
                 if(fname != NULL){
                     printf("got write\n");
                     temp = find_by_fid(files, fid);
+                    temp->last_activity = time(NULL);
+                    
                     //FILE IS OPEN
                     if(temp != NULL){
                         char *wbuff = payload;
@@ -238,7 +256,7 @@ void *receive_udp(void *arg){
                         type = WRITE_DONE;
                         //CHECK IF COUNT EQUAL SIZE OR LESS
                         if(wbuff != NULL){
-                            printf("wrote: %s\n", wbuff);
+                            //printf("wrote: %s\n", wbuff);
                         }
                         serialize(buff, &type, fname, &temp->fid,&pos , &count, &seqno,&rn, wbuff);
                         sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
@@ -249,26 +267,13 @@ void *receive_udp(void *arg){
                     else{
                         printf("got write\n");
 
-                        //REOPEN AND SAVE WITH PREVIOUS FID
-                        snprintf(filepath, sizeof(filepath), "%s/%s", bdir, fname);
-                        //printf("filepath is: %s\n", filepath);
-                        int fd = open(filepath, O_RDWR | O_CREAT, 0644);
-                        
-                        
-                        if(fd != -1){
-                            //add file to the list along with its fd, fname and FID FROM REQ
-                            add(files, fname, fd, fid);
-                            //send answer
-                            type = OPEN_REP;
-                            serialize(buff,&type, fname,&fid_cnt, &pos, &size, &seqno,&rn, payload);
-                            sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
-                            //update fid
-                            fid_cnt++;
-                                
-                            
-                        }
+                        //reopen and save file
+                        reopen(fname, fid);
+
                         //GET THE NEWLY OPENED FILE
                         temp = find_by_fid(files, fid);
+                        temp->last_activity = time(NULL);
+
 
                         //WRITE CODE
                         char *wbuff = payload;
@@ -291,7 +296,7 @@ void *receive_udp(void *arg){
                         type = WRITE_DONE;
                         //CHECK IF COUNT EQUAL SIZE OR LESS
                         if(wbuff != NULL){
-                            printf("wrote: %s\n", wbuff);
+                            //printf("wrote: %s\n", wbuff);
                         }
                         serialize(buff, &type, fname, &temp->fid,&pos , &count, &seqno,&rn, wbuff);
                         sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
@@ -305,9 +310,11 @@ void *receive_udp(void *arg){
                 }
             }
             else if(type == TRUNC){
-                if(fname != NULL && fid > 0){
+                if(fname != NULL && fid >= 0){
                     printf("got truncate\n");
                     temp = find_by_fid(files, fid);
+                    temp->last_activity = time(NULL);
+
 
                     //file is already open
                     if(temp != NULL){
@@ -325,25 +332,12 @@ void *receive_udp(void *arg){
                         //TODO: OPEN AND TRUNCATE
                         printf("got truncate\n");
                         //REOPEN AND SAVE WITH PREVIOUS FID
-                        snprintf(filepath, sizeof(filepath), "%s/%s", bdir, fname);
-                        //printf("filepath is: %s\n", filepath);
-                        int fd = open(filepath, O_RDWR | O_CREAT, 0644);
-                        
-                        
-                        if(fd != -1){
-                            //add file to the list along with its fd, fname and FID FROM REQ
-                            add(files, fname, fd, fid);
-                            //send answer
-                            type = OPEN_REP;
-                            serialize(buff,&type, fname,&fid_cnt, &pos, &size, &seqno,&rn, payload);
-                            sendto(udp_sock,buff, SIZE, 0,  (struct sockaddr*)&client, client_len);
-                            //update fid
-                            fid_cnt++;
-                                
-                            
-                        }
+                        reopen(fname, fid);
+
                         //GET THE NEWLY OPENED FILE
                         temp = find_by_fid(files, fid);
+                        temp->last_activity = time(NULL);
+
 
                         ret = ftruncate(temp->fd, size);
                         printf("truncate ret is: %d\n", ret);
@@ -357,7 +351,7 @@ void *receive_udp(void *arg){
 
                 }else{
                     printf("TRUNCATE:\n");
-                    printf("fname is invalid or fid < 0\n");                    
+                    printf("fname is invalid or fid < 0, fid: %d\n", fid);                    
                 }
 
             }    
@@ -377,6 +371,55 @@ void *receive_udp(void *arg){
 
     return NULL;
 
+}
+
+//garbage collector
+void *fresh_check(void *arg){
+    file_t *curr=NULL, *prev=NULL;
+    while(1){
+        sleep(INTERVAL);
+        printf("garbage collection started\n");
+
+        pthread_mutex_lock(&files->lock);
+        curr = files->head->next;
+        prev = files->head;
+
+        time_t now = time(NULL);
+        while(curr != files->head){
+            //delete unused 
+            if(curr->last_activity - now > FRESH){
+                prev->next= curr->next;
+                free(curr->fname);
+                free(curr);
+                files->size--;
+            }
+            curr = curr->next;
+            prev = curr;
+        }      
+        print_list(files);
+        pthread_mutex_unlock(&files->lock);
+        
+    }
+
+}
+//REOPEN AND SAVE WITH PREVIOUS FID
+int reopen(char *fname, int fid){
+    char filepath[SIZE];
+    snprintf(filepath, sizeof(filepath), "%s/%s", bdir, fname);
+    //printf("filepath is: %s\n", filepath);
+    int fd = open(filepath, O_RDWR | O_CREAT, 0644);
+    
+    
+    if(fd != -1){
+        //add file to the list along with its fd, fname and FID FROM REQ
+        add(files, fname, fd, fid);
+        fid_cnt++;
+       return 1;
+        
+    }
+    else{
+       return -1;
+    }
 }
 
 
@@ -486,18 +529,33 @@ void server_init(char *base_dir) {
         perror("pthread_create failed");
         exit(EXIT_FAILURE);  
     }
+
+    result = pthread_create(&fresh_checker, NULL, fresh_check, NULL);
+
+    if (result != 0) {
+        perror("pthread_create failed");
+        exit(EXIT_FAILURE);  
+    }
 }
 
 void server_destroy() {
     
-    destroy(files);
-    free(bdir);
-
     int result = pthread_join(receiver, NULL);
     if (result != 0) {
         perror("pthread_join failed");
         exit(EXIT_FAILURE);  
     }
+
+    result = pthread_join(fresh_checker, NULL);
+    if (result != 0) {
+        perror("pthread_join failed");
+        exit(EXIT_FAILURE);  
+    }
+    
+    destroy(files);
+    free(bdir);
+
+
 }
 
 int init_udp_socket(struct sockaddr_in *server_addr) {
@@ -527,3 +585,5 @@ int init_udp_socket(struct sockaddr_in *server_addr) {
     
     return sock_fd;
 }
+
+
